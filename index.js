@@ -51,8 +51,20 @@ app.get('/proxy', async (req, res) => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
 
-    const renderedContent = await page.content();
+    let renderedContent = await page.content();
     await page.close();
+
+    // THE FIX: Parse out the target domain origin (e.g., https://google.com)
+    const urlObj = new URL(targetUrl);
+    const targetOrigin = urlObj.origin;
+
+    // Inject a <base> tag right at the top of the <head> block.
+    // This forces your browser to evaluate all relative search submissions back to Google's origin.
+    if (renderedContent.includes('<head>')) {
+      renderedContent = renderedContent.replace('<head>', `<head><base href="${targetOrigin}/">`);
+    } else if (renderedContent.includes('<html>')) {
+      renderedContent = renderedContent.replace('<html>', `<html><head><base href="${targetOrigin}/"></head>`);
+    }
 
     res.setHeader('Content-Type', 'text/html');
     return res.send(renderedContent);
@@ -131,7 +143,7 @@ app.get('*', (req, res) => {
         <p>Enter a destination web link address below to browse securely.</p>
         
         <div class="input-group">
-          <input type="text" id="urlInput" placeholder="https://example.com" onkeydown="if(event.key==='Enter') launchProxy()">
+          <input type="text" id="urlInput" placeholder="https://google.com" onkeydown="if(event.key==='Enter') launchProxy()">
           <button onclick="launchProxy()">Go</button>
         </div>
       </div>
@@ -141,12 +153,10 @@ app.get('*', (req, res) => {
           let target = document.getElementById('urlInput').value.trim();
           if (!target) return;
           
-          // Auto-format shorthand inputs like 'google.com' to standard browser protocols
           if (!target.startsWith('http://') && !target.startsWith('https://')) {
             target = 'https://' + target;
           }
           
-          // Navigate seamlessly via the local proxy path context
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(target);
         }
       </script>
