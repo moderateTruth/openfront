@@ -7,8 +7,8 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 let browser;
-// Keep track of the active destination domain in server memory to capture stray redirects
-let currentProxyTargetOrigin = 'https://www.google.com';
+// Swapping the fallback tracking target from Google to DuckDuckGo to stop bot blocks
+let currentProxyTargetOrigin = 'https://duckduckgo.com';
 
 async function initBrowser() {
   try {
@@ -60,7 +60,7 @@ app.get('/proxy', async (req, res) => {
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
-    // Block Service Workers from taking over browser network paths
+    // Block background worker leaks from hijacking the connection
     await page.evaluateOnNewDocument(() => {
       delete window.navigator.__proto__.serviceWorker;
     });
@@ -77,7 +77,7 @@ app.get('/proxy', async (req, res) => {
     const proxyOrigin = `https://${req.headers.host}`;
     const urlObj = new URL(targetUrl);
     
-    // Save the target origin state in memory so fallback catchers know where to route broken links
+    // Track origin state dynamically
     currentProxyTargetOrigin = urlObj.origin;
 
     const universalInterceptor = `
@@ -106,7 +106,6 @@ app.get('/proxy', async (req, res) => {
             return PROXY_ORIGIN + '/proxy?url=' + encodeURIComponent(absoluteUrl);
           }
 
-          // Catch path rewrite requests from background javascript scripts
           history.pushState = function(state, title, url) {
             if (url) window.location.href = wrapUrl(url);
           };
@@ -151,15 +150,7 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
-// 2. THE STRAY ROUTE INTERCEPTOR CATCHER
-// If Google escapes the proxy via a path query like /search, this automatically bundles it back into the loop
-app.get('/search', (req, res) => {
-  const proxyOrigin = `https://${req.headers.host}`;
-  const fullDestUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
-  return res.redirect(`${proxyOrigin}/proxy?url=${encodeURIComponent(fullDestUrl)}`);
-});
-
-// 3. MAIN DASHBOARD FRONT PAGE
+// 2. MAIN DASHBOARD FRONT PAGE
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -183,7 +174,8 @@ app.get('/', (req, res) => {
         <h2>🌐 Stealth Gateway Portal</h2>
         <p>Enter a destination web link address below to browse securely.</p>
         <div class="input-group">
-          <input type="text" id="urlInput" placeholder="https://google.com" onkeydown="if(event.key==='Enter') launchProxy()">
+          <!-- Switched default placeholder text to guide you toward DuckDuckGo -->
+          <input type="text" id="urlInput" placeholder="://duckduckgo.com" onkeydown="if(event.key==='Enter') launchProxy()">
           <button onclick="launchProxy()">Go</button>
         </div>
       </div>
@@ -202,7 +194,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Wildcard routing to clean up broken references
+// Wildcard fallback router to catch stray internal paths
 app.get('*', (req, res) => {
   const proxyOrigin = `https://${req.headers.host}`;
   const fullDestUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
