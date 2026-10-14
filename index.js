@@ -20,7 +20,7 @@ async function initBrowser() {
         '--disable-web-security'
       ]
     });
-    console.log("Deep Rewrite Proxy Engine initialized successfully.");
+    console.log("Global Interception Proxy Engine initialized successfully.");
   } catch (err) {
     console.error("Failed to launch proxy browser:", err);
   }
@@ -37,7 +37,6 @@ function cleanUrl(target, baseOrigin) {
 }
 
 app.get('/proxy', async (req, res) => {
-  // THE FIX: Rebundle parameters that were broken apart by search engine forms
   const rawUrlLine = req.originalUrl; 
   const urlMarker = '/proxy?url=';
   
@@ -45,7 +44,6 @@ app.get('/proxy', async (req, res) => {
     return res.status(400).send('Error: Missing "url" query parameter.');
   }
 
-  // Extract everything after '/proxy?url=' in its raw, un-split form
   const rawTargetUrl = rawUrlLine.substring(rawUrlLine.indexOf(urlMarker) + urlMarker.length);
   const targetUrl = decodeURIComponent(rawTargetUrl);
 
@@ -72,44 +70,87 @@ app.get('/proxy', async (req, res) => {
     const urlObj = new URL(targetUrl);
     const targetOrigin = urlObj.origin;
 
-    // Rewrite click links
-    renderedContent = renderedContent.replace(/href=["']([^"']+)["']/g, (match, p1) => {
-      if (p1.startsWith('javascript:') || p1.startsWith('#')) return match;
-      const absoluteUrl = cleanUrl(p1, targetOrigin);
-      return `href="${proxyOrigin}/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
-    });
-
-    // Rewrite form actions
-    renderedContent = renderedContent.replace(/action=["']([^"']+)["']/g, (match, p1) => {
-      const absoluteUrl = cleanUrl(p1, targetOrigin);
-      return `action="${proxyOrigin}/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
-    });
-
-    // Javascript form interception script
-    const injectionScript = `
+    // THE DEEP FIX: Inject a global script override into the document window context
+    // This patches core Web APIs to ensure background fetch, ajax, forms, and redirects are forced back into the proxy loop
+    const universalInterceptor = `
       <script>
-        window.addEventListener('submit', function(e) {
-          const form = e.target;
-          if (form && form.action && !form.action.includes('/proxy?url=')) {
-            e.preventDefault();
-            const absoluteUrl = new URL(form.getAttribute('action'), "${targetOrigin}").href;
+        (function() {
+          const PROXY_ORIGIN = "${proxyOrigin}";
+          const TARGET_ORIGIN = "${targetOrigin}";
+
+          function wrapUrl(url) {
+            if (!url || typeof url !== 'string') return url;
+            if (url.startsWith(PROXY_ORIGIN)) return url;
             
-            // Build form inputs manually into the URL query parameters
-            const formData = new FormData(form);
-            const params = new URLSearchParams(formData).toString();
-            let finalUrl = absoluteUrl;
-            if (params) {
-              finalUrl += (absoluteUrl.includes('?') ? '&' : '?') + params;
+            // Format relative or external links to absolute values
+            let absoluteUrl = url;
+            if (url.startsWith('//')) {
+              absoluteUrl = window.location.protocol + url;
+            } else if (url.startsWith('/') || !url.startsWith('http')) {
+              absoluteUrl = new URL(url, TARGET_ORIGIN).href;
             }
             
-            window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(finalUrl);
+            return PROXY_ORIGIN + '/proxy?url=' + encodeURIComponent(absoluteUrl);
           }
-        }, true);
+
+          // 1. Intercept Native Fetch Calls (Google's asynchronous background requests)
+          const originalFetch = window.fetch;
+          window.fetch = function(input, init) {
+            if (typeof input === 'string') {
+              input = wrapUrl(input);
+            } else if (input instanceof Request) {
+              const newUrl = wrapUrl(input.url);
+              input = new Request(newUrl, input);
+            }
+            return originalFetch.apply(this, arguments);
+          };
+
+          // 2. Intercept Native XMLHttpRequest (AJAX background searches)
+          const originalOpen = XMLHttpRequest.prototype.open;
+          XMLHttpRequest.prototype.open = function(method, url) {
+            if (typeof url === 'string') {
+              url = wrapUrl(url);
+            }
+            return originalOpen.apply(this, arguments);
+          };
+
+          // 3. Intercept Programmatic Form Submissions
+          const originalSubmit = HTMLFormElement.prototype.submit;
+          HTMLFormElement.prototype.submit = function() {
+            if (this.action && !this.action.includes('/proxy?url=')) {
+              this.action = wrapUrl(this.action);
+            }
+            return originalSubmit.apply(this, arguments);
+          };
+
+          // 4. Intercept Dynamic User Form Clicks and Enter keys
+          window.addEventListener('submit', function(e) {
+            const form = e.target;
+            if (form && form.action && !form.action.includes('/proxy?url=')) {
+              form.action = wrapUrl(form.action);
+            }
+          }, true);
+
+          // 5. Intercept Click Events dynamically on the layout
+          window.addEventListener('click', function(e) {
+            const link = e.target.closest('a');
+            if (link && link.href) {
+              const hrefValue = link.getAttribute('href');
+              if (hrefValue && !hrefValue.startsWith('javascript:') && !hrefValue.startsWith('#') && !link.href.includes('/proxy?url=')) {
+                e.preventDefault();
+                window.location.href = wrapUrl(link.href);
+              }
+            }
+          }, true);
+        })();
       </script>
     `;
     
-    if (renderedContent.includes('</head>')) {
-      renderedContent = renderedContent.replace('</head>', `${injectionScript}</head>`);
+    // Inject the script bundle at the very top of the head block so it initializes before other scripts run
+    if (renderedContent.includes('<head>')) {
+      renderedContent = renderedContent.replace('<head>', `<head>${universalInterceptor}`);
+    } else if (renderedContent.includes('<html>')) {
+      renderedContent = renderedContent.replace('<html>', `<html><head>${universalInterceptor}</head>`);
     }
 
     res.setHeader('Content-Type', 'text/html');
@@ -122,7 +163,7 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
-// Interactive Front Page
+// Interactive Front Page Dashboard
 app.get('*', (req, res) => {
   res.send(`
     <!DOCTYPE html>
