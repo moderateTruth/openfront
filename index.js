@@ -9,13 +9,13 @@ const PORT = process.env.PORT || 3000;
 app.all('*', async (req, res) => {
   let browser;
   try {
-    // Manually force the path to where Render's build downloads the Chromium binary
-    const chromePath = '/opt/render/.cache/puppeteer/chrome/linux-148.0.7778.97/chrome-linux64/chrome';
+    // Dynamically look up the exact folder Puppeteer downloaded chrome into
+    const autoChromePath = puppeteer.executablePath();
 
     // Launch a stealth browser instance natively supported by Render's environment
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: chromePath, // This forces Puppeteer to look in the correct folder
+      executablePath: autoChromePath, // Solves path mismatch automatically
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox', 
