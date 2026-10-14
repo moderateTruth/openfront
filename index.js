@@ -13,8 +13,6 @@ let page;
 async function initBrowser() {
   try {
     console.log("Launching core containerized browser engine...");
-
-    // Leaving executablePath blank forces Puppeteer to use the Docker container's built-in Chrome binary automatically
     browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -35,11 +33,10 @@ async function initBrowser() {
 }
 initBrowser();
 
-// 1. WEBSOCKET ROUTING INTERCEPT: Seamlessly tunnel real-time multiplayer connections through Render
 const wsProxy = createProxyMiddleware({
   target: 'https://openfront.io',
   changeOrigin: true,
-  ws: true, // Enables proxying for WebSocket traffic
+  ws: true,
   logLevel: 'debug'
 });
 
@@ -48,38 +45,46 @@ app.all('*', async (req, res) => {
     return res.status(500).send("Proxy engine starting up. Please refresh in a moment.");
   }
 
-  // Automatically detect whatever Render address you are currently using
   const RENDER_DOMAIN = req.headers.host;
   const targetUrl = `https://openfront.io${req.url}`;
 
   try {
-    // 2. SCRAPE & REWRITE BASE DOCUMENTS (HTML/JS/CSS)
-    if (req.url === '/' || req.url.endsWith('.html') || req.url.endsWith('.js') || req.url.endsWith('.css') || !req.url.includes('.')) {
+    // 1. MATCH CORE DOCUMENT LAYERS (HTML structure and frames)
+    if (req.url === '/' || req.url.endsWith('.html') || !req.url.includes('.')) {
+      // THE FIX: Switch from 'networkidle2' to 'domcontentloaded' to stop the infinite browser tab loading circle
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       
-      let rawData;
-      if (req.url === '/' || req.url.endsWith('.html') || !req.url.includes('.')) {
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-        rawData = await page.content();
-      } else {
-        // Fetch raw asset scripts inside Render server natively
-        const assetRes = await fetch(targetUrl, { headers: { 'Referer': 'https://openfront.io' } });
-        rawData = await assetRes.text();
-      }
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      });
 
-      // THE FIX: Intercept the document text data and force change internal references to your Render proxy link
+      let rawData = await page.content();
+      
+      // Patch strings directly inside memory
       let patchedData = rawData
         .replace(/openfront\.io/g, RENDER_DOMAIN)
         .replace(/wss:\/\/openfront\.io/g, `wss://${RENDER_DOMAIN}`);
 
-      // Apply appropriate browser rendering headers
-      if (req.url.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript');
-      else if (req.url.endsWith('.css')) res.setHeader('Content-Type', 'text/css');
-      else res.setHeader('Content-Type', 'text/html');
-
+      res.setHeader('Content-Type', 'text/html');
       return res.send(patchedData);
     } 
     
-    // 3. PASSTHROUGH ROUTING FOR BINARY ASSETS (Images, Audio, Icons)
+    // 2. FORWARD SCRIPTS AND STYLES DIRECTLY THROUGH THE SERVER PIPELINE
+    else if (req.url.endsWith('.js') || req.url.endsWith('.css')) {
+      const assetRes = await fetch(targetUrl, { headers: { 'Referer': 'https://openfront.io' } });
+      const rawText = await assetRes.text();
+
+      let patchedText = rawText
+        .replace(/openfront\.io/g, RENDER_DOMAIN)
+        .replace(/wss:\/\/openfront\.io/g, `wss://${RENDER_DOMAIN}`);
+
+      if (req.url.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript');
+      else res.setHeader('Content-Type', 'text/css');
+
+      return res.send(patchedText);
+    }
+    
+    // 3. PASSTHROUGH STREAM FOR IMAGES, TEXTURES AND AUDIO
     else {
       const mediaResponse = await fetch(targetUrl, { headers: { 'Referer': 'https://openfront.io' } });
       const contentType = mediaResponse.headers.get('content-type');
@@ -94,10 +99,8 @@ app.all('*', async (req, res) => {
   }
 });
 
-// Start the core web listener
 const server = app.listen(PORT);
 
-// Tunnel real-time websocket upgrade queries directly through Render server
 server.on('upgrade', (request, socket, head) => {
   wsProxy.upgrade(request, socket, head);
 });
