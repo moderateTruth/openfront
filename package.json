@@ -1,7 +1,7 @@
 {
-  "name": "stealth-proxy",
+  "name": "regular-web-proxy",
   "version": "1.0.0",
-  "description": "Dynamic Realtime Patching Mirror",
+  "description": "Dynamic Request Fetching Proxy",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "http-proxy-middleware": "^3.0.3",
     "puppeteer": "^24.0.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
