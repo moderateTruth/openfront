@@ -27,15 +27,6 @@ async function initBrowser() {
 }
 initBrowser();
 
-function cleanUrl(target, baseOrigin) {
-  if (!target) return target;
-  if (target.startsWith('//')) return 'https:' + target;
-  if (target.startsWith('/') || !target.startsWith('http')) {
-    return new URL(target, baseOrigin).href;
-  }
-  return target;
-}
-
 app.get('/proxy', async (req, res) => {
   const rawUrlLine = req.originalUrl; 
   const urlMarker = '/proxy?url=';
@@ -70,8 +61,7 @@ app.get('/proxy', async (req, res) => {
     const urlObj = new URL(targetUrl);
     const targetOrigin = urlObj.origin;
 
-    // THE DEEP FIX: Inject a global script override into the document window context
-    // This patches core Web APIs to ensure background fetch, ajax, forms, and redirects are forced back into the proxy loop
+    // THE DEFINITIVE FIXED INTERCEPTOR: Overrides History API, Fetch, AJAX, Forms, and URL mutations
     const universalInterceptor = `
       <script>
         (function() {
@@ -82,7 +72,6 @@ app.get('/proxy', async (req, res) => {
             if (!url || typeof url !== 'string') return url;
             if (url.startsWith(PROXY_ORIGIN)) return url;
             
-            // Format relative or external links to absolute values
             let absoluteUrl = url;
             if (url.startsWith('//')) {
               absoluteUrl = window.location.protocol + url;
@@ -93,28 +82,45 @@ app.get('/proxy', async (req, res) => {
             return PROXY_ORIGIN + '/proxy?url=' + encodeURIComponent(absoluteUrl);
           }
 
-          // 1. Intercept Native Fetch Calls (Google's asynchronous background requests)
+          // 1. FIXED THE HOMEPAGE KICK-OUT: Override the History API to intercept background path changes
+          const originalPushState = history.pushState;
+          history.pushState = function(state, title, url) {
+            if (url && !url.includes('/proxy?url=')) {
+              // Force browser context redirection instead of allowing clean path updates
+              window.location.href = wrapUrl(url);
+              return;
+            }
+            return originalPushState.apply(this, arguments);
+          };
+
+          const originalReplaceState = history.replaceState;
+          history.replaceState = function(state, title, url) {
+            if (url && !url.includes('/proxy?url=')) {
+              window.location.href = wrapUrl(url);
+              return;
+            }
+            return originalReplaceState.apply(this, arguments);
+          };
+
+          // 2. Intercept Native Fetch Calls
           const originalFetch = window.fetch;
           window.fetch = function(input, init) {
             if (typeof input === 'string') {
               input = wrapUrl(input);
             } else if (input instanceof Request) {
-              const newUrl = wrapUrl(input.url);
-              input = new Request(newUrl, input);
+              input = new Request(wrapUrl(input.url), input);
             }
             return originalFetch.apply(this, arguments);
           };
 
-          // 2. Intercept Native XMLHttpRequest (AJAX background searches)
+          // 3. Intercept Native XMLHttpRequests
           const originalOpen = XMLHttpRequest.prototype.open;
           XMLHttpRequest.prototype.open = function(method, url) {
-            if (typeof url === 'string') {
-              url = wrapUrl(url);
-            }
+            if (typeof url === 'string') url = wrapUrl(url);
             return originalOpen.apply(this, arguments);
           };
 
-          // 3. Intercept Programmatic Form Submissions
+          // 4. Intercept Form Submit Methods
           const originalSubmit = HTMLFormElement.prototype.submit;
           HTMLFormElement.prototype.submit = function() {
             if (this.action && !this.action.includes('/proxy?url=')) {
@@ -123,7 +129,7 @@ app.get('/proxy', async (req, res) => {
             return originalSubmit.apply(this, arguments);
           };
 
-          // 4. Intercept Dynamic User Form Clicks and Enter keys
+          // 5. Intercept Click Events and Form Actions
           window.addEventListener('submit', function(e) {
             const form = e.target;
             if (form && form.action && !form.action.includes('/proxy?url=')) {
@@ -131,7 +137,6 @@ app.get('/proxy', async (req, res) => {
             }
           }, true);
 
-          // 5. Intercept Click Events dynamically on the layout
           window.addEventListener('click', function(e) {
             const link = e.target.closest('a');
             if (link && link.href) {
@@ -146,7 +151,6 @@ app.get('/proxy', async (req, res) => {
       </script>
     `;
     
-    // Inject the script bundle at the very top of the head block so it initializes before other scripts run
     if (renderedContent.includes('<head>')) {
       renderedContent = renderedContent.replace('<head>', `<head>${universalInterceptor}`);
     } else if (renderedContent.includes('<html>')) {
@@ -163,7 +167,7 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
-// Interactive Front Page Dashboard
+// Interactive Front Page Layout Dashboard
 app.get('*', (req, res) => {
   res.send(`
     <!DOCTYPE html>
