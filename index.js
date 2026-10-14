@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 let browser;
-let currentProxyTargetOrigin = 'https://html.duckduckgo.com';
+let currentProxyTargetOrigin = 'https://duckduckgo.com';
 
 async function initBrowser() {
   try {
@@ -145,7 +145,6 @@ app.get('/', (req, res) => {
         .container { text-align: center; background: #1e293b; padding: 40px; border-radius: 12px; max-width: 550px; width: 100%; box-sizing: border-box; }
         h2 { margin-bottom: 8px; color: #38bdf8; }
         p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
-        .section-label { text-align: left; font-size: 12px; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin: 15px 0 5px 0; }
         .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
         input { flex: 1; padding: 12px 16px; border-radius: 6px; border: 1px solid #475569; background: #334155; color: #fff; font-size: 16px; outline: none; }
         input:focus { border-color: #38bdf8; }
@@ -157,34 +156,16 @@ app.get('/', (req, res) => {
       <div class="container">
         <h2>🌐 Stealth Gateway Portal</h2>
         <p>Browse or search the web securely without breaking the proxy tunnel context.</p>
-        
-        <div class="section-label">Option 1: Direct URL Router</div>
-        <div class="input-group">
-          <input type="text" id="urlInput" placeholder="https://wikipedia.org" onkeydown="if(event.key==='Enter') launchUrl()">
-          <button onclick="launchUrl()">Go</button>
-        </div>
-
-        <div class="section-label">Option 2: Unblocked Web Search</div>
         <div class="input-group">
           <input type="text" id="searchInput" placeholder="Type anything to search..." onkeydown="if(event.key==='Enter') launchSearch()">
           <button onclick="launchSearch()" style="background: #10b981;">Search</button>
         </div>
       </div>
-
       <script>
-        function launchUrl() {
-          let target = document.getElementById('urlInput').value.trim();
-          if (!target) return;
-          if (!target.startsWith('http://') && !target.startsWith('https://')) {
-            target = 'https://' + target;
-          }
-          window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(target);
-        }
-
         function launchSearch() {
           let query = document.getElementById('searchInput').value.trim();
           if (!query) return;
-          let cleanSearchUrl = 'https://duckduckgo.com' + encodeURIComponent(query);
+          let cleanSearchUrl = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(query);
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(cleanSearchUrl);
         }
       </script>
@@ -193,18 +174,23 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 3. SECURE NATURALLY COMBINED PATH ASSET ROUTER
+// 3. THE FIXED DIRECTORY FALLBACK ROUTER
 app.get('*', async (req, res) => {
   let assetOrigin = currentProxyTargetOrigin;
   if (assetOrigin.includes('duckduckgo.com')) {
     assetOrigin = 'https://duckduckgo.com';
   }
 
+  // YOUR SLASHER FIX: Ensures there is always a clean slash barrier dividing origin and request path parameters
+  let cleanRequestPath = req.originalUrl;
+  if (!cleanRequestPath.startsWith('/')) {
+    cleanRequestPath = '/' + cleanRequestPath;
+  }
+
+  const fullDestAssetUrl = `${assetOrigin}${cleanRequestPath}`;
+  
   try {
-    // THE CRITICAL RESOLUTION: Use native URL constructors to prevent invalid string merging
-    const resolvedAssetUrl = new URL(req.originalUrl, assetOrigin).href;
-    
-    const assetResponse = await fetch(resolvedAssetUrl, {
+    const assetResponse = await fetch(fullDestAssetUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...' }
     });
     
@@ -214,8 +200,8 @@ app.get('*', async (req, res) => {
     const arrayBuffer = await assetResponse.arrayBuffer();
     return res.send(Buffer.from(arrayBuffer));
   } catch (error) {
-    console.error("Asset processing crash handled:", error.message);
-    return res.status(404).send('Asset folder map mismatch resolved.');
+    console.error("Asset pipe error:", error.message);
+    return res.status(404).send('Asset not found');
   }
 });
 
