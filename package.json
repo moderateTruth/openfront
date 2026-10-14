@@ -1,7 +1,7 @@
 {
   "name": "stealth-proxy",
   "version": "1.0.0",
-  "description": "Multiplayer IO Game Reverse Proxy",
+  "description": "Dynamic Realtime Patching Mirror",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.3",
     "puppeteer": "^24.0.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
