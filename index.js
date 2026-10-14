@@ -131,7 +131,7 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
-// 2. INTERACTIVE MAIN HUB PAGE
+// 2. INTERACTIVE MAIN HUB PAGE (Two-Box Format Restored)
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -145,6 +145,7 @@ app.get('/', (req, res) => {
         .container { text-align: center; background: #1e293b; padding: 40px; border-radius: 12px; max-width: 550px; width: 100%; box-sizing: border-box; }
         h2 { margin-bottom: 8px; color: #38bdf8; }
         p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+        .section-label { text-align: left; font-size: 12px; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin: 15px 0 5px 0; }
         .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
         input { flex: 1; padding: 12px 16px; border-radius: 6px; border: 1px solid #475569; background: #334155; color: #fff; font-size: 16px; outline: none; }
         input:focus { border-color: #38bdf8; }
@@ -156,12 +157,32 @@ app.get('/', (req, res) => {
       <div class="container">
         <h2>🌐 Stealth Gateway Portal</h2>
         <p>Browse or search the web securely without breaking the proxy tunnel context.</p>
+        
+        <!-- Box 1: Direct Link Access -->
+        <div class="section-label">Option 1: Direct URL Router</div>
+        <div class="input-group">
+          <input type="text" id="urlInput" placeholder="https://wikipedia.org" onkeydown="if(event.key==='Enter') launchUrl()">
+          <button onclick="launchUrl()">Go</button>
+        </div>
+
+        <!-- Box 2: Secure Web Search Engine -->
+        <div class="section-label">Option 2: Unblocked Web Search</div>
         <div class="input-group">
           <input type="text" id="searchInput" placeholder="Type anything to search..." onkeydown="if(event.key==='Enter') launchSearch()">
           <button onclick="launchSearch()" style="background: #10b981;">Search</button>
         </div>
       </div>
+
       <script>
+        function launchUrl() {
+          let target = document.getElementById('urlInput').value.trim();
+          if (!target) return;
+          if (!target.startsWith('http://') && !target.startsWith('https://')) {
+            target = 'https://' + target;
+          }
+          window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(target);
+        }
+
         function launchSearch() {
           let query = document.getElementById('searchInput').value.trim();
           if (!query) return;
@@ -174,14 +195,14 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 3. THE FIXED DIRECTORY FALLBACK ROUTER
+// 3. THE REWRITTEN DIRECTORY FALLBACK ROUTER
 app.get('*', async (req, res) => {
   let assetOrigin = currentProxyTargetOrigin;
   if (assetOrigin.includes('duckduckgo.com')) {
     assetOrigin = 'https://duckduckgo.com';
   }
 
-  // YOUR SLASHER FIX: Ensures there is always a clean slash barrier dividing origin and request path parameters
+  // Your slash alignment adjustment
   let cleanRequestPath = req.originalUrl;
   if (!cleanRequestPath.startsWith('/')) {
     cleanRequestPath = '/' + cleanRequestPath;
