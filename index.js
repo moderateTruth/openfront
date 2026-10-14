@@ -31,64 +31,6 @@ async function initBrowser() {
 }
 initBrowser();
 
-const visualOverrideStyles = `
-  <style>
-    body { 
-      background-color: #0f172a !important; 
-      color: #f8fafc !important; 
-      font-family: sans-serif !important; 
-      padding: 30px !important; 
-      margin: 0 !important;
-    }
-    .links_main, .result, tr, table, .nav-link, .links { 
-      display: block !important; 
-      max-width: 800px !important; 
-      margin: 16px 0 !important; 
-      padding: 16px !important; 
-      background: #1e293b !important; 
-      border-radius: 8px !important; 
-      border: none !important;
-    }
-    td { display: block !important; border: none !important; }
-    a, .result__url, .result__title { 
-      color: #38bdf8 !important; 
-      text-decoration: none !important; 
-      font-size: 18px !important; 
-      font-weight: bold !important; 
-    }
-    a:hover { text-decoration: underline !important; }
-    p, .result-snippet, .result__snippet { 
-      color: #94a3b8 !important; 
-      font-size: 14px !important; 
-    }
-    form { 
-      background: #1e293b !important; 
-      padding: 20px !important; 
-      border-radius: 8px !important; 
-      display: flex !important;
-      gap: 10px !important;
-      max-width: 800px !important;
-    }
-    input[type="text"] { 
-      flex: 1 !important;
-      padding: 10px !important; 
-      background: #334155 !important; 
-      color: #fff !important; 
-      border: 1px solid #475569 !important; 
-      border-radius: 4px !important; 
-    }
-    input[type="submit"], button { 
-      padding: 10px 20px !important; 
-      background: #0284c7 !important; 
-      color: #fff !important; 
-      border: none !important; 
-      border-radius: 4px !important; 
-      cursor: pointer !important; 
-    }
-    select, .nav-menu { display: none !important; }
-  </style>
-`;
-
 async function handleProxyExtraction(targetUrl, req, res) {
   if (!browser) return res.status(500).send('Starting up engine...');
 
@@ -96,8 +38,9 @@ async function handleProxyExtraction(targetUrl, req, res) {
   try {
     page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...');
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
+    // Prevent background tasks from tracking or breaking the proxy path
     await page.evaluateOnNewDocument(() => {
       delete window.navigator.__proto__.serviceWorker;
     });
@@ -111,6 +54,7 @@ async function handleProxyExtraction(targetUrl, req, res) {
     const urlObj = new URL(targetUrl);
     currentProxyTargetOrigin = urlObj.origin;
 
+    // Inject an invisible tracking script that intercepts clicked links to keep them inside the proxy container
     const universalInterceptor = `
       <script>
         (function() {
@@ -137,10 +81,11 @@ async function handleProxyExtraction(targetUrl, req, res) {
       </script>
     `;
     
+    // Smoothly append the tracking interceptor to the head block
     if (renderedContent.includes('<head>')) {
-      renderedContent = renderedContent.replace('<head>', `<head>${universalInterceptor}${visualOverrideStyles}`);
+      renderedContent = renderedContent.replace('<head>', `<head>${universalInterceptor}`);
     } else {
-      renderedContent = renderedContent.replace('<html>', `<html><head>${universalInterceptor}${visualOverrideStyles}</head>`);
+      renderedContent = renderedContent.replace('<html>', `<html><head>${universalInterceptor}</head>`);
     }
 
     res.setHeader('Content-Type', 'text/html');
@@ -159,6 +104,7 @@ app.get('/proxy', async (req, res) => {
   return handleProxyExtraction(targetUrl, req, res);
 });
 
+// Explicitly handle standard DuckDuckGo search queries natively
 app.all(['/html', '/html/'], async (req, res) => {
   let queryTerm = req.query.q || req.body.q;
   if (!queryTerm) return res.redirect('/');
@@ -166,6 +112,7 @@ app.all(['/html', '/html/'], async (req, res) => {
   return handleProxyExtraction(targetUrl, req, res);
 });
 
+// The standard home page for your deployment
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -215,12 +162,14 @@ app.get('/', (req, res) => {
   `);
 });
 
+// The background asset catcher streams standard CSS, images, and fonts perfectly
 app.get('*', async (req, res) => {
-  let assetOrigin = currentProxyTargetOrigin.includes('duckduckgo.com') ? 'https://duckduckgo.com' : currentProxyTargetOrigin;
+  let assetOrigin = 'https://duckduckgo.com';
   let cleanRequestPath = req.originalUrl.startsWith('/') ? req.originalUrl : '/' + req.originalUrl;
+  
   try {
     const assetResponse = await fetch(`${assetOrigin}${cleanRequestPath}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)...' }
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
     });
     const contentType = assetResponse.headers.get('content-type');
     if (contentType) res.setHeader('Content-Type', contentType);
