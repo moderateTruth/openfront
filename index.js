@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 let browser;
-// Swapping the fallback tracking target from Google to DuckDuckGo to stop bot blocks
+// Default tracking origin set to DuckDuckGo's classic HTML engine
 let currentProxyTargetOrigin = 'https://duckduckgo.com';
 
 async function initBrowser() {
@@ -60,7 +60,7 @@ app.get('/proxy', async (req, res) => {
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
-    // Block background worker leaks from hijacking the connection
+    // Block background Service Workers from hijacking network requests
     await page.evaluateOnNewDocument(() => {
       delete window.navigator.__proto__.serviceWorker;
     });
@@ -77,7 +77,7 @@ app.get('/proxy', async (req, res) => {
     const proxyOrigin = `https://${req.headers.host}`;
     const urlObj = new URL(targetUrl);
     
-    // Track origin state dynamically
+    // Dynamically lock the server's tracking origin to the website you are actively viewing
     currentProxyTargetOrigin = urlObj.origin;
 
     const universalInterceptor = `
@@ -174,7 +174,6 @@ app.get('/', (req, res) => {
         <h2>🌐 Stealth Gateway Portal</h2>
         <p>Enter a destination web link address below to browse securely.</p>
         <div class="input-group">
-          <!-- Switched default placeholder text to guide you toward DuckDuckGo -->
           <input type="text" id="urlInput" placeholder="://duckduckgo.com" onkeydown="if(event.key==='Enter') launchProxy()">
           <button onclick="launchProxy()">Go</button>
         </div>
@@ -194,11 +193,12 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Wildcard fallback router to catch stray internal paths
+// 3. THE WILDCARD PASSTHROUGH FIX: 
+// Automatically captures raw stray relative requests (like /html/ or /css) and groups them back into the proxy loop
 app.get('*', (req, res) => {
   const proxyOrigin = `https://${req.headers.host}`;
   const fullDestUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
-  res.redirect(`${proxyOrigin}/proxy?url=${encodeURIComponent(fullDestUrl)}`);
+  return res.redirect(`${proxyOrigin}/proxy?url=${encodeURIComponent(fullDestUrl)}`);
 });
 
 app.listen(PORT, () => {
