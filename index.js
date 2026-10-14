@@ -12,7 +12,9 @@ let page;
 
 async function initBrowser() {
   try {
-    // Simplified launch relies entirely on our local project cache configuration file
+    console.log("Launching core containerized browser engine...");
+
+    // Leaving executablePath blank forces Puppeteer to use the Docker container's built-in Chrome binary automatically
     browser = await puppeteer.launch({
       headless: true,
       args: [
