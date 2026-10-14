@@ -131,7 +131,7 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
-// 2. INTERACTIVE MAIN HUB PAGE WITH BUILT-IN UNBLOCKED SEARCH
+// 2. INTERACTIVE MAIN HUB PAGE
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -158,14 +158,12 @@ app.get('/', (req, res) => {
         <h2>🌐 Stealth Gateway Portal</h2>
         <p>Browse or search the web securely without breaking the proxy tunnel context.</p>
         
-        <!-- MODULE 1: Direct Web Address Routing -->
         <div class="section-label">Option 1: Direct URL Router</div>
         <div class="input-group">
           <input type="text" id="urlInput" placeholder="https://wikipedia.org" onkeydown="if(event.key==='Enter') launchUrl()">
           <button onclick="launchUrl()">Go</button>
         </div>
 
-        <!-- MODULE 2: Custom Search Bar Bypasses POST Blocks -->
         <div class="section-label">Option 2: Unblocked Web Search</div>
         <div class="input-group">
           <input type="text" id="searchInput" placeholder="Type anything to search..." onkeydown="if(event.key==='Enter') launchSearch()">
@@ -174,7 +172,6 @@ app.get('/', (req, res) => {
       </div>
 
       <script>
-        // Directly navigates to custom website URLs
         function launchUrl() {
           let target = document.getElementById('urlInput').value.trim();
           if (!target) return;
@@ -184,12 +181,9 @@ app.get('/', (req, res) => {
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(target);
         }
 
-        // Packs search text manually into a clean, proxied GET request format
         function launchSearch() {
           let query = document.getElementById('searchInput').value.trim();
           if (!query) return;
-          
-          // Formats query arguments into DuckDuckGo's static text interface path parameters
           let cleanSearchUrl = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(query);
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(cleanSearchUrl);
         }
@@ -199,11 +193,25 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Wildcard fallback router proxies secondary layout assets natively
-app.get('*', (req, res) => {
-  const proxyOrigin = `https://${req.headers.host}`;
-  const fullDestUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
-  return res.redirect(`${proxyOrigin}/proxy?url=${encodeURIComponent(fullDestUrl)}`);
+// 3. THE FIXED ASSET ROUTER: 
+// Downloads layout sheets internally and streams raw binary data to restore fonts, designs, and graphics
+app.get('*', async (req, res) => {
+  const fullDestAssetUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
+  
+  try {
+    const assetResponse = await fetch(fullDestAssetUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)...' }
+    });
+    
+    const contentType = assetResponse.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
+    
+    const arrayBuffer = await assetResponse.arrayBuffer();
+    return res.send(Buffer.from(arrayBuffer));
+  } catch (error) {
+    console.error("Asset pipe error:", error.message);
+    return res.status(404).send('Asset not found');
+  }
 });
 
 app.listen(PORT, () => {
