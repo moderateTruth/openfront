@@ -27,7 +27,6 @@ async function initBrowser() {
 }
 initBrowser();
 
-// Helper function to turn relative links into absolute links so they can be proxied properly
 function cleanUrl(target, baseOrigin) {
   if (!target) return target;
   if (target.startsWith('//')) return 'https:' + target;
@@ -38,11 +37,17 @@ function cleanUrl(target, baseOrigin) {
 }
 
 app.get('/proxy', async (req, res) => {
-  const targetUrl = req.query.url;
-
-  if (!targetUrl) {
+  // THE FIX: Rebundle parameters that were broken apart by search engine forms
+  const rawUrlLine = req.originalUrl; 
+  const urlMarker = '/proxy?url=';
+  
+  if (!rawUrlLine.includes(urlMarker)) {
     return res.status(400).send('Error: Missing "url" query parameter.');
   }
+
+  // Extract everything after '/proxy?url=' in its raw, un-split form
+  const rawTargetUrl = rawUrlLine.substring(rawUrlLine.indexOf(urlMarker) + urlMarker.length);
+  const targetUrl = decodeURIComponent(rawTargetUrl);
 
   if (!browser) {
     return res.status(500).send('Proxy engine is starting up. Please refresh in a moment.');
@@ -67,31 +72,37 @@ app.get('/proxy', async (req, res) => {
     const urlObj = new URL(targetUrl);
     const targetOrigin = urlObj.origin;
 
-    // THE ABSOLUTE FIX: Search the site code and rewrite all elements to stay locked inside the proxy
-    
-    // 1. Rewrite normal click links (href)
+    // Rewrite click links
     renderedContent = renderedContent.replace(/href=["']([^"']+)["']/g, (match, p1) => {
       if (p1.startsWith('javascript:') || p1.startsWith('#')) return match;
       const absoluteUrl = cleanUrl(p1, targetOrigin);
       return `href="${proxyOrigin}/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
     });
 
-    // 2. Rewrite form submissions and search bars (action)
+    // Rewrite form actions
     renderedContent = renderedContent.replace(/action=["']([^"']+)["']/g, (match, p1) => {
       const absoluteUrl = cleanUrl(p1, targetOrigin);
       return `action="${proxyOrigin}/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
     });
 
-    // 3. Inject a script fallback to intercept dynamic javascript page redirects on your Chromebook
+    // Javascript form interception script
     const injectionScript = `
       <script>
-        // Intercept form submissions that happen via Javascript
         window.addEventListener('submit', function(e) {
           const form = e.target;
           if (form && form.action && !form.action.includes('/proxy?url=')) {
             e.preventDefault();
             const absoluteUrl = new URL(form.getAttribute('action'), "${targetOrigin}").href;
-            window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(absoluteUrl);
+            
+            // Build form inputs manually into the URL query parameters
+            const formData = new FormData(form);
+            const params = new URLSearchParams(formData).toString();
+            let finalUrl = absoluteUrl;
+            if (params) {
+              finalUrl += (absoluteUrl.includes('?') ? '&' : '?') + params;
+            }
+            
+            window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(finalUrl);
           }
         }, true);
       </script>
@@ -106,12 +117,12 @@ app.get('/proxy', async (req, res) => {
 
   } catch (error) {
     if (page) await page.close();
-    console.error(`Proxy failed to fetch ${targetUrl}:`, error.message);
+    console.error(`Proxy failed to fetch:`, error.message);
     return res.status(500).send(`Proxy Error: Details: ${error.message}`);
   }
 });
 
-// Interactive Front Page with Unblocked Input Dashboard
+// Interactive Front Page
 app.get('*', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -143,10 +154,7 @@ app.get('*', (req, res) => {
         }
         h2 { margin-bottom: 8px; color: #38bdf8; }
         p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
-        .input-group {
-          display: flex;
-          gap: 10px;
-        }
+        .input-group { display: flex; gap: 10px; }
         input {
           flex: 1;
           padding: 12px 16px;
@@ -176,22 +184,18 @@ app.get('*', (req, res) => {
       <div class="container">
         <h2>🌐 Stealth Gateway Portal</h2>
         <p>Enter a destination web link address below to browse securely.</p>
-        
         <div class="input-group">
           <input type="text" id="urlInput" placeholder="https://google.com" onkeydown="if(event.key==='Enter') launchProxy()">
           <button onclick="launchProxy()">Go</button>
         </div>
       </div>
-
       <script>
         function launchProxy() {
           let target = document.getElementById('urlInput').value.trim();
           if (!target) return;
-          
           if (!target.startsWith('http://') && !target.startsWith('https://')) {
             target = 'https://' + target;
           }
-          
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(target);
         }
       </script>
