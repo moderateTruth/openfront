@@ -7,6 +7,8 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 let browser;
+// Keep track of the active destination domain in server memory to capture stray redirects
+let currentProxyTargetOrigin = 'https://www.google.com';
 
 async function initBrowser() {
   try {
@@ -36,6 +38,7 @@ function cleanUrl(target, baseOrigin) {
   return target;
 }
 
+// 1. PRIMARY PROXY GATEWAY ROUTE
 app.get('/proxy', async (req, res) => {
   const rawUrlLine = req.originalUrl; 
   const urlMarker = '/proxy?url=';
@@ -57,7 +60,7 @@ app.get('/proxy', async (req, res) => {
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
-    // 1. THE ANTIDOTE: Block Service Workers from installing and hijacking the connection
+    // Block Service Workers from taking over browser network paths
     await page.evaluateOnNewDocument(() => {
       delete window.navigator.__proto__.serviceWorker;
     });
@@ -73,18 +76,16 @@ app.get('/proxy', async (req, res) => {
 
     const proxyOrigin = `https://${req.headers.host}`;
     const urlObj = new URL(targetUrl);
-    const targetOrigin = urlObj.origin;
-
-    // 2. STRIP COMPLEX SCRIPTS: Break Google's dynamic history-rewriting mechanisms
-    renderedContent = renderedContent.replace(/<script[^>]*src=["'][^"']*gwt[^"']*["'][^>]*><\/script>/gi, '');
+    
+    // Save the target origin state in memory so fallback catchers know where to route broken links
+    currentProxyTargetOrigin = urlObj.origin;
 
     const universalInterceptor = `
       <script>
         (function() {
           const PROXY_ORIGIN = "${proxyOrigin}";
-          const TARGET_ORIGIN = "${targetOrigin}";
+          const TARGET_ORIGIN = "${currentProxyTargetOrigin}";
 
-          // Disable Service Workers completely inside the Chromebook view
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(registrations) {
               for(let registration of registrations) { registration.unregister(); }
@@ -105,7 +106,7 @@ app.get('/proxy', async (req, res) => {
             return PROXY_ORIGIN + '/proxy?url=' + encodeURIComponent(absoluteUrl);
           }
 
-          // Intercept History API mutations
+          // Catch path rewrite requests from background javascript scripts
           history.pushState = function(state, title, url) {
             if (url) window.location.href = wrapUrl(url);
           };
@@ -113,7 +114,6 @@ app.get('/proxy', async (req, res) => {
             if (url) window.location.href = wrapUrl(url);
           };
 
-          // Intercept clicks and form actions
           window.addEventListener('submit', function(e) {
             const form = e.target;
             if (form && form.action && !form.action.includes('/proxy?url=')) {
@@ -151,8 +151,16 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
-// Front Page Dashboard
-app.get('*', (req, res) => {
+// 2. THE STRAY ROUTE INTERCEPTOR CATCHER
+// If Google escapes the proxy via a path query like /search, this automatically bundles it back into the loop
+app.get('/search', (req, res) => {
+  const proxyOrigin = `https://${req.headers.host}`;
+  const fullDestUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
+  return res.redirect(`${proxyOrigin}/proxy?url=${encodeURIComponent(fullDestUrl)}`);
+});
+
+// 3. MAIN DASHBOARD FRONT PAGE
+app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html lang="en">
@@ -192,6 +200,13 @@ app.get('*', (req, res) => {
     </body>
     </html>
   `);
+});
+
+// Wildcard routing to clean up broken references
+app.get('*', (req, res) => {
+  const proxyOrigin = `https://${req.headers.host}`;
+  const fullDestUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
+  res.redirect(`${proxyOrigin}/proxy?url=${encodeURIComponent(fullDestUrl)}`);
 });
 
 app.listen(PORT, () => {
