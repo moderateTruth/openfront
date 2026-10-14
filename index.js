@@ -46,7 +46,7 @@ const visualOverrideStyles = '<style>' +
   '.proxy-tabs { display: flex !important; gap: 15px !important; max-width: 800px !important; margin-bottom: 20px !important; border-bottom: 1px solid #334155 !important; padding-bottom: 10px !important; }' +
   '.p-tab { background: transparent !important; border: none !important; color: #94a3b8 !important; font-size: 14px !important; font-weight: bold !important; cursor: pointer; }' +
   '.p-tab.active { color: #38bdf8 !important; border-bottom: 2px solid #38bdf8 !important; }' +
-  '</style>';
+  '</style>'
 async function handleProxyExtraction(targetUrl, req, res, activeTab) {
   if (!browser) return res.status(500).send('Starting up engine...');
   let page;
