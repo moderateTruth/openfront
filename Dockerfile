@@ -13,8 +13,9 @@ RUN npm install
 # Copy your proxy application logic files
 COPY . .
 
-# Expose Render's standard web channel listener port
+# Expose the master lobby port and all 20 multiplayer match ports
 EXPOSE 3000
+EXPOSE 3001-3020
 
 # Start the reverse proxy service
 CMD ["node", "index.js"]
