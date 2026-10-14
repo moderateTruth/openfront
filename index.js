@@ -27,6 +27,15 @@ async function initBrowser() {
 }
 initBrowser();
 
+function cleanUrl(target, baseOrigin) {
+  if (!target) return target;
+  if (target.startsWith('//')) return 'https:' + target;
+  if (target.startsWith('/') || !target.startsWith('http')) {
+    return new URL(target, baseOrigin).href;
+  }
+  return target;
+}
+
 app.get('/proxy', async (req, res) => {
   const rawUrlLine = req.originalUrl; 
   const urlMarker = '/proxy?url=';
@@ -48,6 +57,11 @@ app.get('/proxy', async (req, res) => {
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
+    // 1. THE ANTIDOTE: Block Service Workers from installing and hijacking the connection
+    await page.evaluateOnNewDocument(() => {
+      delete window.navigator.__proto__.serviceWorker;
+    });
+
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     await page.evaluate(() => {
@@ -61,12 +75,21 @@ app.get('/proxy', async (req, res) => {
     const urlObj = new URL(targetUrl);
     const targetOrigin = urlObj.origin;
 
-    // THE DEFINITIVE FIXED INTERCEPTOR: Overrides History API, Fetch, AJAX, Forms, and URL mutations
+    // 2. STRIP COMPLEX SCRIPTS: Break Google's dynamic history-rewriting mechanisms
+    renderedContent = renderedContent.replace(/<script[^>]*src=["'][^"']*gwt[^"']*["'][^>]*><\/script>/gi, '');
+
     const universalInterceptor = `
       <script>
         (function() {
           const PROXY_ORIGIN = "${proxyOrigin}";
           const TARGET_ORIGIN = "${targetOrigin}";
+
+          // Disable Service Workers completely inside the Chromebook view
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for(let registration of registrations) { registration.unregister(); }
+            });
+          }
 
           function wrapUrl(url) {
             if (!url || typeof url !== 'string') return url;
@@ -82,54 +105,15 @@ app.get('/proxy', async (req, res) => {
             return PROXY_ORIGIN + '/proxy?url=' + encodeURIComponent(absoluteUrl);
           }
 
-          // 1. FIXED THE HOMEPAGE KICK-OUT: Override the History API to intercept background path changes
-          const originalPushState = history.pushState;
+          // Intercept History API mutations
           history.pushState = function(state, title, url) {
-            if (url && !url.includes('/proxy?url=')) {
-              // Force browser context redirection instead of allowing clean path updates
-              window.location.href = wrapUrl(url);
-              return;
-            }
-            return originalPushState.apply(this, arguments);
+            if (url) window.location.href = wrapUrl(url);
           };
-
-          const originalReplaceState = history.replaceState;
           history.replaceState = function(state, title, url) {
-            if (url && !url.includes('/proxy?url=')) {
-              window.location.href = wrapUrl(url);
-              return;
-            }
-            return originalReplaceState.apply(this, arguments);
+            if (url) window.location.href = wrapUrl(url);
           };
 
-          // 2. Intercept Native Fetch Calls
-          const originalFetch = window.fetch;
-          window.fetch = function(input, init) {
-            if (typeof input === 'string') {
-              input = wrapUrl(input);
-            } else if (input instanceof Request) {
-              input = new Request(wrapUrl(input.url), input);
-            }
-            return originalFetch.apply(this, arguments);
-          };
-
-          // 3. Intercept Native XMLHttpRequests
-          const originalOpen = XMLHttpRequest.prototype.open;
-          XMLHttpRequest.prototype.open = function(method, url) {
-            if (typeof url === 'string') url = wrapUrl(url);
-            return originalOpen.apply(this, arguments);
-          };
-
-          // 4. Intercept Form Submit Methods
-          const originalSubmit = HTMLFormElement.prototype.submit;
-          HTMLFormElement.prototype.submit = function() {
-            if (this.action && !this.action.includes('/proxy?url=')) {
-              this.action = wrapUrl(this.action);
-            }
-            return originalSubmit.apply(this, arguments);
-          };
-
-          // 5. Intercept Click Events and Form Actions
+          // Intercept clicks and form actions
           window.addEventListener('submit', function(e) {
             const form = e.target;
             if (form && form.action && !form.action.includes('/proxy?url=')) {
@@ -167,7 +151,7 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
-// Interactive Front Page Layout Dashboard
+// Front Page Dashboard
 app.get('*', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -177,52 +161,13 @@ app.get('*', (req, res) => {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>🌐 Stealth Portal</title>
       <style>
-        body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          background-color: #0f172a;
-          color: #f8fafc;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-          margin: 0;
-        }
-        .container {
-          text-align: center;
-          background: #1e293b;
-          padding: 40px;
-          border-radius: 12px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-          max-width: 500px;
-          width: 100%;
-          box-sizing: border-box;
-        }
+        body { font-family: sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { text-align: center; background: #1e293b; padding: 40px; border-radius: 12px; max-width: 500px; width: 100%; box-sizing: border-box; }
         h2 { margin-bottom: 8px; color: #38bdf8; }
         p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
         .input-group { display: flex; gap: 10px; }
-        input {
-          flex: 1;
-          padding: 12px 16px;
-          border-radius: 6px;
-          border: 1px solid #475569;
-          background: #334155;
-          color: #fff;
-          font-size: 16px;
-          outline: none;
-        }
-        input:focus { border-color: #38bdf8; }
-        button {
-          padding: 12px 24px;
-          border-radius: 6px;
-          border: none;
-          background: #0284c7;
-          color: #fff;
-          font-size: 16px;
-          font-weight: bold;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-        button:hover { background: #0369a1; }
+        input { flex: 1; padding: 12px 16px; border-radius: 6px; border: 1px solid #475569; background: #334155; color: #fff; font-size: 16px; outline: none; }
+        button { padding: 12px 24px; border-radius: 6px; border: none; background: #0284c7; color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; }
       </style>
     </head>
     <body>
