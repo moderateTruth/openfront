@@ -7,7 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 let browser;
-// Default tracking origin set to DuckDuckGo's classic HTML engine
 let currentProxyTargetOrigin = 'https://duckduckgo.com';
 
 async function initBrowser() {
@@ -60,7 +59,6 @@ app.get('/proxy', async (req, res) => {
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
-    // Block background Service Workers from hijacking network requests
     await page.evaluateOnNewDocument(() => {
       delete window.navigator.__proto__.serviceWorker;
     });
@@ -76,8 +74,6 @@ app.get('/proxy', async (req, res) => {
 
     const proxyOrigin = `https://${req.headers.host}`;
     const urlObj = new URL(targetUrl);
-    
-    // Dynamically lock the server's tracking origin to the website you are actively viewing
     currentProxyTargetOrigin = urlObj.origin;
 
     const universalInterceptor = `
@@ -106,20 +102,6 @@ app.get('/proxy', async (req, res) => {
             return PROXY_ORIGIN + '/proxy?url=' + encodeURIComponent(absoluteUrl);
           }
 
-          history.pushState = function(state, title, url) {
-            if (url) window.location.href = wrapUrl(url);
-          };
-          history.replaceState = function(state, title, url) {
-            if (url) window.location.href = wrapUrl(url);
-          };
-
-          window.addEventListener('submit', function(e) {
-            const form = e.target;
-            if (form && form.action && !form.action.includes('/proxy?url=')) {
-              form.action = wrapUrl(form.action);
-            }
-          }, true);
-
           window.addEventListener('click', function(e) {
             const link = e.target.closest('a');
             if (link && link.href) {
@@ -145,12 +127,11 @@ app.get('/proxy', async (req, res) => {
 
   } catch (error) {
     if (page) await page.close();
-    console.error(`Proxy failed to fetch:`, error.message);
     return res.status(500).send(`Proxy Error: Details: ${error.message}`);
   }
 });
 
-// 2. MAIN DASHBOARD FRONT PAGE
+// 2. INTERACTIVE MAIN HUB PAGE WITH BUILT-IN UNBLOCKED SEARCH
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -161,25 +142,40 @@ app.get('/', (req, res) => {
       <title>🌐 Stealth Portal</title>
       <style>
         body { font-family: sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .container { text-align: center; background: #1e293b; padding: 40px; border-radius: 12px; max-width: 500px; width: 100%; box-sizing: border-box; }
+        .container { text-align: center; background: #1e293b; padding: 40px; border-radius: 12px; max-width: 550px; width: 100%; box-sizing: border-box; }
         h2 { margin-bottom: 8px; color: #38bdf8; }
         p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
-        .input-group { display: flex; gap: 10px; }
+        .section-label { text-align: left; font-size: 12px; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin: 15px 0 5px 0; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
         input { flex: 1; padding: 12px 16px; border-radius: 6px; border: 1px solid #475569; background: #334155; color: #fff; font-size: 16px; outline: none; }
+        input:focus { border-color: #38bdf8; }
         button { padding: 12px 24px; border-radius: 6px; border: none; background: #0284c7; color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; }
+        button:hover { background: #0369a1; }
       </style>
     </head>
     <body>
       <div class="container">
         <h2>🌐 Stealth Gateway Portal</h2>
-        <p>Enter a destination web link address below to browse securely.</p>
+        <p>Browse or search the web securely without breaking the proxy tunnel context.</p>
+        
+        <!-- MODULE 1: Direct Web Address Routing -->
+        <div class="section-label">Option 1: Direct URL Router</div>
         <div class="input-group">
-          <input type="text" id="urlInput" placeholder="://duckduckgo.com" onkeydown="if(event.key==='Enter') launchProxy()">
-          <button onclick="launchProxy()">Go</button>
+          <input type="text" id="urlInput" placeholder="https://wikipedia.org" onkeydown="if(event.key==='Enter') launchUrl()">
+          <button onclick="launchUrl()">Go</button>
+        </div>
+
+        <!-- MODULE 2: Custom Search Bar Bypasses POST Blocks -->
+        <div class="section-label">Option 2: Unblocked Web Search</div>
+        <div class="input-group">
+          <input type="text" id="searchInput" placeholder="Type anything to search..." onkeydown="if(event.key==='Enter') launchSearch()">
+          <button onclick="launchSearch()" style="background: #10b981;">Search</button>
         </div>
       </div>
+
       <script>
-        function launchProxy() {
+        // Directly navigates to custom website URLs
+        function launchUrl() {
           let target = document.getElementById('urlInput').value.trim();
           if (!target) return;
           if (!target.startsWith('http://') && !target.startsWith('https://')) {
@@ -187,14 +183,23 @@ app.get('/', (req, res) => {
           }
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(target);
         }
+
+        // Packs search text manually into a clean, proxied GET request format
+        function launchSearch() {
+          let query = document.getElementById('searchInput').value.trim();
+          if (!query) return;
+          
+          // Formats query arguments into DuckDuckGo's static text interface path parameters
+          let cleanSearchUrl = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(query);
+          window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(cleanSearchUrl);
+        }
       </script>
     </body>
     </html>
   `);
 });
 
-// 3. THE WILDCARD PASSTHROUGH FIX: 
-// Automatically captures raw stray relative requests (like /html/ or /css) and groups them back into the proxy loop
+// Wildcard fallback router proxies secondary layout assets natively
 app.get('*', (req, res) => {
   const proxyOrigin = `https://${req.headers.host}`;
   const fullDestUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
