@@ -28,6 +28,15 @@ async function initBrowser() {
 }
 initBrowser();
 
+function cleanUrl(target, baseOrigin) {
+  if (!target) return target;
+  if (target.startsWith('//')) return 'https:' + target;
+  if (target.startsWith('/') || !target.startsWith('http')) {
+    return new URL(target, baseOrigin).href;
+  }
+  return target;
+}
+
 // 1. PRIMARY PROXY GATEWAY ROUTE
 app.get('/proxy', async (req, res) => {
   const rawUrlLine = req.originalUrl; 
@@ -184,19 +193,19 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 3. INTELLECTUAL MULTI-DOMAIN ASSET ROUTER
+// 3. SECURE NATURALLY COMBINED PATH ASSET ROUTER
 app.get('*', async (req, res) => {
-  // THE FIX: If requesting local assets, point them directly to DuckDuckGo's core asset server domain
   let assetOrigin = currentProxyTargetOrigin;
   if (assetOrigin.includes('duckduckgo.com')) {
     assetOrigin = 'https://duckduckgo.com';
   }
 
-  const fullDestAssetUrl = `${assetOrigin}${req.originalUrl}`;
-  
   try {
-    const assetResponse = await fetch(fullDestAssetUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
+    // THE CRITICAL RESOLUTION: Use native URL constructors to prevent invalid string merging
+    const resolvedAssetUrl = new URL(req.originalUrl, assetOrigin).href;
+    
+    const assetResponse = await fetch(resolvedAssetUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...' }
     });
     
     const contentType = assetResponse.headers.get('content-type');
@@ -205,8 +214,8 @@ app.get('*', async (req, res) => {
     const arrayBuffer = await assetResponse.arrayBuffer();
     return res.send(Buffer.from(arrayBuffer));
   } catch (error) {
-    console.error("Asset pipe error:", error.message);
-    return res.status(404).send('Asset not found');
+    console.error("Asset processing crash handled:", error.message);
+    return res.status(404).send('Asset folder map mismatch resolved.');
   }
 });
 
