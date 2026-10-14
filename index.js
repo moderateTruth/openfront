@@ -1,7 +1,6 @@
 import express from 'express';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import path from 'path';
 
 puppeteer.use(StealthPlugin());
 const app = express();
@@ -10,15 +9,13 @@ const PORT = process.env.PORT || 3000;
 let browser;
 let page;
 
-// Explicitly set a local cache path configuration
-const localChromeFolder = path.join(process.cwd(), 'node_modules', '.cache', 'puppeteer');
-
+// Boot up a single background browser session
 async function initBrowser() {
   try {
-    console.log("Launching core automation instance...");
-
+    const autoChromePath = puppeteer.executablePath();
     browser = await puppeteer.launch({
-      headless: true, // Render requires headless mode to run
+      headless: true, // Required for Render environments
+      executablePath: autoChromePath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -33,13 +30,12 @@ async function initBrowser() {
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
     
-    console.log("Stealth engine browser context initialized successfully.");
+    console.log("Stealth mirror browser context initialized.");
   } catch (err) {
-    console.error("Failed to initialize core browser configuration:", err);
+    console.error("Browser launch failed:", err);
   }
 }
 
-// Start the browser immediately
 initBrowser();
 
 app.all('*', async (req, res) => {
@@ -50,9 +46,11 @@ app.all('*', async (req, res) => {
   try {
     const targetUrl = `https://openfront.io${req.url}`;
     
-    if (req.url === '/' || req.url.endsWith('.html')) {
+    // 1. If hitting the core landing page or HTML frames, scrape via the Stealth Browser
+    if (req.url === '/' || req.url.endsWith('.html') || !req.url.includes('.')) {
       await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
       
+      // Inject patches to hide headless automation variables from Cloudflare
       await page.evaluate(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
       });
@@ -60,16 +58,31 @@ app.all('*', async (req, res) => {
       const HTMLContent = await page.content();
       res.setHeader('Content-Type', 'text/html');
       return res.send(HTMLContent);
-    } else {
-      res.redirect(targetUrl);
+    } 
+    
+    // 2. ABSOLUTE FIX: Fetch all secondary media/scripts internally instead of redirecting
+    else {
+      const assetResponse = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...',
+          'Referer': 'https://openfront.io/'
+        }
+      });
+
+      const contentType = assetResponse.headers.get('content-type');
+      if (contentType) res.setHeader('Content-Type', contentType);
+
+      // Convert asset data to an array buffer and send raw binary data (images, js, css)
+      const dataBuffer = await assetResponse.arrayBuffer();
+      return res.send(Buffer.from(dataBuffer));
     }
 
   } catch (error) {
-    console.error("Session Exception:", error);
-    return res.status(500).send(`Verification bypass failed: ${error.message}`);
+    console.error("Asset Stream Error:", error);
+    return res.status(500).send(`Mirror stream broken: ${error.message}`);
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Stealth Session Reflector running live on port ${PORT}`);
+  console.log(`Stealth Asset Mirror running live on port ${PORT}`);
 });
