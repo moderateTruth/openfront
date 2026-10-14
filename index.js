@@ -20,14 +20,23 @@ async function initBrowser() {
         '--disable-web-security'
       ]
     });
-    console.log("Global Web Proxy Engine initialized successfully.");
+    console.log("Deep Rewrite Proxy Engine initialized successfully.");
   } catch (err) {
     console.error("Failed to launch proxy browser:", err);
   }
 }
 initBrowser();
 
-// Main proxy route processing requests
+// Helper function to turn relative links into absolute links so they can be proxied properly
+function cleanUrl(target, baseOrigin) {
+  if (!target) return target;
+  if (target.startsWith('//')) return 'https:' + target;
+  if (target.startsWith('/') || !target.startsWith('http')) {
+    return new URL(target, baseOrigin).href;
+  }
+  return target;
+}
+
 app.get('/proxy', async (req, res) => {
   const targetUrl = req.query.url;
 
@@ -54,16 +63,42 @@ app.get('/proxy', async (req, res) => {
     let renderedContent = await page.content();
     await page.close();
 
-    // THE FIX: Parse out the target domain origin (e.g., https://google.com)
+    const proxyOrigin = `https://${req.headers.host}`;
     const urlObj = new URL(targetUrl);
     const targetOrigin = urlObj.origin;
 
-    // Inject a <base> tag right at the top of the <head> block.
-    // This forces your browser to evaluate all relative search submissions back to Google's origin.
-    if (renderedContent.includes('<head>')) {
-      renderedContent = renderedContent.replace('<head>', `<head><base href="${targetOrigin}/">`);
-    } else if (renderedContent.includes('<html>')) {
-      renderedContent = renderedContent.replace('<html>', `<html><head><base href="${targetOrigin}/"></head>`);
+    // THE ABSOLUTE FIX: Search the site code and rewrite all elements to stay locked inside the proxy
+    
+    // 1. Rewrite normal click links (href)
+    renderedContent = renderedContent.replace(/href=["']([^"']+)["']/g, (match, p1) => {
+      if (p1.startsWith('javascript:') || p1.startsWith('#')) return match;
+      const absoluteUrl = cleanUrl(p1, targetOrigin);
+      return `href="${proxyOrigin}/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
+    });
+
+    // 2. Rewrite form submissions and search bars (action)
+    renderedContent = renderedContent.replace(/action=["']([^"']+)["']/g, (match, p1) => {
+      const absoluteUrl = cleanUrl(p1, targetOrigin);
+      return `action="${proxyOrigin}/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
+    });
+
+    // 3. Inject a script fallback to intercept dynamic javascript page redirects on your Chromebook
+    const injectionScript = `
+      <script>
+        // Intercept form submissions that happen via Javascript
+        window.addEventListener('submit', function(e) {
+          const form = e.target;
+          if (form && form.action && !form.action.includes('/proxy?url=')) {
+            e.preventDefault();
+            const absoluteUrl = new URL(form.getAttribute('action'), "${targetOrigin}").href;
+            window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(absoluteUrl);
+          }
+        }, true);
+      </script>
+    `;
+    
+    if (renderedContent.includes('</head>')) {
+      renderedContent = renderedContent.replace('</head>', `${injectionScript}</head>`);
     }
 
     res.setHeader('Content-Type', 'text/html');
@@ -72,7 +107,7 @@ app.get('/proxy', async (req, res) => {
   } catch (error) {
     if (page) await page.close();
     console.error(`Proxy failed to fetch ${targetUrl}:`, error.message);
-    return res.status(500).send(`Proxy Error: Unable to fetch target resource. Details: ${error.message}`);
+    return res.status(500).send(`Proxy Error: Details: ${error.message}`);
   }
 });
 
