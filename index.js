@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 let browser;
-let currentProxyTargetOrigin = 'https://duckduckgo.com';
+let currentProxyTargetOrigin = 'https://html.duckduckgo.com';
 
 async function initBrowser() {
   try {
@@ -27,15 +27,6 @@ async function initBrowser() {
   }
 }
 initBrowser();
-
-function cleanUrl(target, baseOrigin) {
-  if (!target) return target;
-  if (target.startsWith('//')) return 'https:' + target;
-  if (target.startsWith('/') || !target.startsWith('http')) {
-    return new URL(target, baseOrigin).href;
-  }
-  return target;
-}
 
 // 1. PRIMARY PROXY GATEWAY ROUTE
 app.get('/proxy', async (req, res) => {
@@ -184,7 +175,7 @@ app.get('/', (req, res) => {
         function launchSearch() {
           let query = document.getElementById('searchInput').value.trim();
           if (!query) return;
-          let cleanSearchUrl = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(query);
+          let cleanSearchUrl = 'https://duckduckgo.com' + encodeURIComponent(query);
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(cleanSearchUrl);
         }
       </script>
@@ -193,14 +184,19 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 3. THE FIXED ASSET ROUTER: 
-// Downloads layout sheets internally and streams raw binary data to restore fonts, designs, and graphics
+// 3. INTELLECTUAL MULTI-DOMAIN ASSET ROUTER
 app.get('*', async (req, res) => {
-  const fullDestAssetUrl = `${currentProxyTargetOrigin}${req.originalUrl}`;
+  // THE FIX: If requesting local assets, point them directly to DuckDuckGo's core asset server domain
+  let assetOrigin = currentProxyTargetOrigin;
+  if (assetOrigin.includes('duckduckgo.com')) {
+    assetOrigin = 'https://duckduckgo.com';
+  }
+
+  const fullDestAssetUrl = `${assetOrigin}${req.originalUrl}`;
   
   try {
     const assetResponse = await fetch(fullDestAssetUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)...' }
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
     });
     
     const contentType = assetResponse.headers.get('content-type');
