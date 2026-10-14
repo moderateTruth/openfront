@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "npx puppeteer browsers install chrome && node index.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
