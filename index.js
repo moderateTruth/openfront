@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 let browser;
-let currentProxyTargetOrigin = 'https://duckduckgo.com';
+let currentProxyTargetOrigin = 'https://html.duckduckgo.com';
 
 async function initBrowser() {
   try {
@@ -158,14 +158,12 @@ app.get('/', (req, res) => {
         <h2>🌐 Stealth Gateway Portal</h2>
         <p>Browse or search the web securely without breaking the proxy tunnel context.</p>
         
-        <!-- Box 1: Direct Link Access -->
         <div class="section-label">Option 1: Direct URL Router</div>
         <div class="input-group">
           <input type="text" id="urlInput" placeholder="https://wikipedia.org" onkeydown="if(event.key==='Enter') launchUrl()">
           <button onclick="launchUrl()">Go</button>
         </div>
 
-        <!-- Box 2: Secure Web Search Engine -->
         <div class="section-label">Option 2: Unblocked Web Search</div>
         <div class="input-group">
           <input type="text" id="searchInput" placeholder="Type anything to search..." onkeydown="if(event.key==='Enter') launchSearch()">
@@ -186,7 +184,7 @@ app.get('/', (req, res) => {
         function launchSearch() {
           let query = document.getElementById('searchInput').value.trim();
           if (!query) return;
-          let cleanSearchUrl = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(query);
+          let cleanSearchUrl = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query);
           window.location.href = window.location.origin + '/proxy?url=' + encodeURIComponent(cleanSearchUrl);
         }
       </script>
@@ -195,24 +193,24 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 3. THE REWRITTEN DIRECTORY FALLBACK ROUTER
+// 3. MULTI-DOMAIN INTELLIGENT FALLBACK ASSET ROUTER
 app.get('*', async (req, res) => {
-  let assetOrigin = currentProxyTargetOrigin;
-  if (assetOrigin.includes('duckduckgo.com')) {
-    assetOrigin = 'https://duckduckgo.com';
-  }
-
-  // Your slash alignment adjustment
   let cleanRequestPath = req.originalUrl;
   if (!cleanRequestPath.startsWith('/')) {
     cleanRequestPath = '/' + cleanRequestPath;
+  }
+
+  // THE FIXED TRANSLATION MAP: Detect core design sheets and map them directly to the main server domain
+  let assetOrigin = currentProxyTargetOrigin;
+  if (cleanRequestPath.startsWith('/s/') || cleanRequestPath.startsWith('/d/') || cleanRequestPath.startsWith('/t/') || assetOrigin.includes('duckduckgo.com')) {
+    assetOrigin = 'https://duckduckgo.com';
   }
 
   const fullDestAssetUrl = `${assetOrigin}${cleanRequestPath}`;
   
   try {
     const assetResponse = await fetch(fullDestAssetUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...' }
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
     });
     
     const contentType = assetResponse.headers.get('content-type');
