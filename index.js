@@ -12,10 +12,9 @@ let page;
 
 async function initBrowser() {
   try {
-    const autoChromePath = puppeteer.executablePath();
+    // Simplified launch relies entirely on our local project cache configuration file
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: autoChromePath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
