@@ -33,11 +33,19 @@ async function initBrowser() {
 }
 initBrowser();
 
-const wsProxy = createProxyMiddleware({
+// 1. DYNAMIC API & WEBSOCKET GATEWAY: Handles background matchmaking requests natively
+const gameProxy = createProxyMiddleware({
   target: 'https://openfront.io',
   changeOrigin: true,
-  ws: true,
-  logLevel: 'debug'
+  ws: true, // Crucial for real-time game traffic
+  logLevel: 'debug',
+  router: (req) => {
+    // If the game scripts try to contact the backend API endpoint, route them directly to the API server
+    if (req.headers.host && req.headers.host.startsWith('api-')) {
+      return 'https://api.openfront.io';
+    }
+    return 'https://openfront.io';
+  }
 });
 
 app.all('*', async (req, res) => {
@@ -46,12 +54,11 @@ app.all('*', async (req, res) => {
   }
 
   const RENDER_DOMAIN = req.headers.host;
-  const targetUrl = `https://openfront.io${req.url}`;
 
   try {
-    // 1. MATCH CORE DOCUMENT LAYERS (HTML structure and frames)
+    // 2. SCRAPE & PATCH CORE WEB DOCUMENTS
     if (req.url === '/' || req.url.endsWith('.html') || !req.url.includes('.')) {
-      // THE FIX: Switch from 'networkidle2' to 'domcontentloaded' to stop the infinite browser tab loading circle
+      const targetUrl = `https://openfront.io${req.url}`;
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       
       await page.evaluate(() => {
@@ -60,22 +67,31 @@ app.all('*', async (req, res) => {
 
       let rawData = await page.content();
       
-      // Patch strings directly inside memory
+      // DEEP PATCH: Converts text markers to use custom routed addresses inside Render
       let patchedData = rawData
+        .replace(/api\.openfront\.io/g, `api-${RENDER_DOMAIN}`)
         .replace(/openfront\.io/g, RENDER_DOMAIN)
+        .replace(/wss:\/\/api\.openfront\.io/g, `wss://api-${RENDER_DOMAIN}`)
         .replace(/wss:\/\/openfront\.io/g, `wss://${RENDER_DOMAIN}`);
 
       res.setHeader('Content-Type', 'text/html');
       return res.send(patchedData);
     } 
     
-    // 2. FORWARD SCRIPTS AND STYLES DIRECTLY THROUGH THE SERVER PIPELINE
+    // 3. INTERCEPT AND PATCH MAIN COMPILED WEBPACK SCRIPTS
     else if (req.url.endsWith('.js') || req.url.endsWith('.css')) {
-      const assetRes = await fetch(targetUrl, { headers: { 'Referer': 'https://openfront.io' } });
+      // Handle requests pointing to our dynamic custom API route mapping
+      const targetHost = req.headers.host && req.headers.host.startsWith('api-') ? 'https://api.openfront.io' : 'https://openfront.io';
+      const targetUrl = `${targetHost}${req.url}`;
+
+      const assetRes = await fetch(targetUrl, { headers: { 'Referer': 'https://openfront.io/' } });
       const rawText = await assetRes.text();
 
+      // Intercept compiled game loops and bend them away from the school block
       let patchedText = rawText
+        .replace(/api\.openfront\.io/g, `api-${RENDER_DOMAIN}`)
         .replace(/openfront\.io/g, RENDER_DOMAIN)
+        .replace(/wss:\/\/api\.openfront\.io/g, `wss://api-${RENDER_DOMAIN}`)
         .replace(/wss:\/\/openfront\.io/g, `wss://${RENDER_DOMAIN}`);
 
       if (req.url.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript');
@@ -84,9 +100,12 @@ app.all('*', async (req, res) => {
       return res.send(patchedText);
     }
     
-    // 3. PASSTHROUGH STREAM FOR IMAGES, TEXTURES AND AUDIO
+    // 4. PASSTHROUGH ROUTING FOR BINARY RENDER ASSETS
     else {
-      const mediaResponse = await fetch(targetUrl, { headers: { 'Referer': 'https://openfront.io' } });
+      const targetHost = req.headers.host && req.headers.host.startsWith('api-') ? 'https://api.openfront.io' : 'https://openfront.io';
+      const targetUrl = `${targetHost}${req.url}`;
+
+      const mediaResponse = await fetch(targetUrl, { headers: { 'Referer': 'https://openfront.io/' } });
       const contentType = mediaResponse.headers.get('content-type');
       if (contentType) res.setHeader('Content-Type', contentType);
 
@@ -95,12 +114,13 @@ app.all('*', async (req, res) => {
     }
 
   } catch (error) {
-    return res.status(500).send(`Mirror link broken: ${error.message}`);
+    return res.status(500).send(`Mirror connection broken: ${error.message}`);
   }
 });
 
 const server = app.listen(PORT);
 
+// Direct WebSocket routing upgrades traffic cleanly through your custom endpoint
 server.on('upgrade', (request, socket, head) => {
-  wsProxy.upgrade(request, socket, head);
+  gameProxy.upgrade(request, socket, head);
 });
